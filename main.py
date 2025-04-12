@@ -5,43 +5,11 @@ import os
 import base64
 import requests
 import json
-from dotenv import load_dotenv
 from streamlit_extras.let_it_rain import rain
 
-# 背景をカフェ風に設定
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-image: url('https://images.unsplash.com/photo-1509042239860-f550ce710b93');
-        background-size: cover;
-        background-repeat: no-repeat;
-        background-attachment: fixed;
-        color: #333;
-    }
-    .ocr-line {
-        padding: 10px;
-        margin-bottom: 10px;
-        background-color: rgba(255, 255, 255, 0.8);
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .ocr-line h4 {
-        margin: 0;
-    }
-    .ocr-line p {
-        margin: 0;
-        color: #666;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# 環境変数の読み込み
-load_dotenv()
-GOOGLE_CLOUD_VISION_API_KEY = st.secrets.get("GOOGLE_CLOUD_VISION_API_KEY")
-DEEPL_API_KEY = st.secrets.get("DEEPL_API_KEY")
+# Streamlit SecretsからAPIキーを取得
+GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
+DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 
 # Google Cloud Vision API を使って OCR を実行する関数
 def ocr_with_google_vision(image):
@@ -87,28 +55,49 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# Streamlit アプリ本体
-st.title("📸 Menu OCR & 翻訳（Google Vision + DeepL）")
+# 背景と雨エフェクトの設定
+page_bg_img = f"""
+<style>
+[data-testid="stAppViewContainer"] > .main {{
+    background-image: url("https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1950&q=80");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}}
+[data-testid="stHeader"] {{
+    background: rgba(0,0,0,0);
+}}
+[data-testid="stSidebar"] > div:first-child {{
+    background: rgba(255, 255, 255, 0.8);
+}}
+</style>
+"""
+
+st.markdown(page_bg_img, unsafe_allow_html=True)
+rain(emoji="☕", font_size=30, falling_speed=3, animation_length="infinite")
+
+# アプリ本体
+st.title("☕ Menu OCR & 翻訳 (Google Vision + DeepL)")
+st.caption("画像から日本語テキストを抽出して翻訳します")
+
 uploaded_file = st.file_uploader("画像をアップロードしてください", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="アップロードされた画像", use_column_width=True)
+    st.image(image, caption="📷 アップロードされた画像", use_column_width=True)
 
-    st.subheader("🔍 Google Cloud Vision OCR結果")
+    st.subheader("🔍 OCR結果")
     text = ocr_with_google_vision(image)
-    st.text_area("抽出された日本語テキスト", text, height=200)
+    st.text_area("📄 抽出された日本語テキスト", text, height=200)
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if lines:
-        st.subheader("🌍 DeepL 翻訳結果")
-        for line in lines:
+        st.subheader("🌍 翻訳結果（テキストごとに対応表示）")
+        for idx, line in enumerate(lines, 1):
             with st.container():
-                st.markdown(f"""
-                <div class="ocr-line">
-                    <h4>🍽️ {line}</h4>
-                    <p>➡️ {translate_text_deepl(line)}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"**{idx}. 📝 原文:** `{line}`")
+                translated = translate_text_deepl(line)
+                st.markdown(f"➡️ **翻訳:** `{translated}`")
+                st.markdown("---")
     else:
         st.warning("テキストが認識されませんでした。画像を確認してください。")
