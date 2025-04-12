@@ -5,3 +5,4 @@ opencv-python-headless
 numpy
 python-dotenv
 requests
+streamlit-extras
