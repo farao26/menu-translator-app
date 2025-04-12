@@ -7,42 +7,11 @@ import requests
 import json
 from dotenv import load_dotenv
 
-# Load environment variables (for local development)
-load_dotenv()
-
-# Use Streamlit Secrets in production
+# Secrets対応の環境変数読み込み（Streamlit Cloud用）
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 
-# Background styling with royal blue
-def set_background(image_file):
-    with open(image_file, "rb") as f:
-        data = f.read()
-        encoded = base64.b64encode(data).decode()
-    page_bg_img = f"""
-    <style>
-    .stApp {{
-        background-image: url("data:image/jpg;base64,{encoded}");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-    }}
-    .card {{
-        background-color: rgba(255, 255, 255, 0.8);
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 1rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }}
-    </style>
-    """
-    st.markdown(page_bg_img, unsafe_allow_html=True)
-
-# Set background image
-set_background("pngtree-vector-royal-blue-abstract-background-image_303102.jpg")
-
-# Google Cloud Vision OCR
-
+# Google Cloud Vision API を使って OCR を実行する関数
 def ocr_with_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
@@ -70,8 +39,7 @@ def ocr_with_google_vision(image):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# DeepL translation
-
+# DeepL API を使った翻訳関数
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -87,27 +55,60 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# App UI
-st.markdown("""
-    <h1 style='text-align: center; color: white;'>🍷 Menu Translator</h1>
-    <p style='text-align: center; color: #ddd;'>高級レストランのメニューをスマートに翻訳</p>
-    <hr style='border-top: 1px solid #ccc;'>
-""", unsafe_allow_html=True)
+# Streamlit アプリ本体
+def main():
+    st.markdown("""
+        <style>
+            body {
+                background-color: #0b1f3a;
+                color: white;
+                font-family: 'Helvetica Neue', sans-serif;
+            }
+            .block-container {
+                padding: 2rem 1rem;
+            }
+            .title-text {
+                font-size: 2.5rem;
+                font-weight: bold;
+                color: #f0f8ff;
+                text-align: center;
+                margin-bottom: 1rem;
+            }
+            .caption-text {
+                text-align: center;
+                font-size: 1rem;
+                margin-bottom: 2rem;
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("画像をアップロードしてください", type=["jpg", "jpeg", "png"])
+    st.markdown("<div class='title-text'>📸 Menu OCR & 翻訳</div>", unsafe_allow_html=True)
+    st.markdown("<div class='caption-text'>画像から日本語テキストを抽出し、英語に翻訳します</div>", unsafe_allow_html=True)
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="アップロードされた画像", use_column_width=True)
+    uploaded_file = st.file_uploader("画像をアップロードしてください", type=["jpg", "jpeg", "png"])
 
-    st.subheader("🔍 OCR結果")
-    text = ocr_with_google_vision(image)
-    st.text_area("抽出された日本語テキスト", text, height=200)
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="アップロードされた画像", use_column_width=True)
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if lines:
-        st.subheader("🌍 翻訳結果")
-        for line in lines:
-            st.markdown(f"<div class='card'><b>🍽️ 日本語:</b> {line}<br><b>➡️ 英語:</b> {translate_text_deepl(line)}</div>", unsafe_allow_html=True)
-    else:
-        st.warning("テキストが認識されませんでした。画像を確認してください。")
+        st.subheader("🔍 OCR結果（Google Cloud Vision）")
+        text = ocr_with_google_vision(image)
+        st.text_area("抽出された日本語テキスト", text, height=200)
+
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if lines:
+            st.subheader("🌍 DeepL翻訳（左右に並べて表示）")
+            for line in lines:
+                with st.container():
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        st.markdown(f"<div style='background-color:#1a2c4e;padding:10px;border-radius:10px;'>🍽️ {line}</div>", unsafe_allow_html=True)
+                    with col2:
+                        translated = translate_text_deepl(line)
+                        st.markdown(f"<div style='background-color:#32476e;padding:10px;border-radius:10px;'>➡️ {translated}</div>", unsafe_allow_html=True)
+        else:
+            st.warning("テキストが認識されませんでした。画像を確認してください。")
+
+if __name__ == "__main__":
+    main()
+    
