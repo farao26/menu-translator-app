@@ -1,20 +1,47 @@
 import streamlit as st
 from PIL import Image
-import pytesseract
-import cv2
-import numpy as np
 import io
-import requests
 import os
+import base64
+import requests
+import json
 from dotenv import load_dotenv
 
-pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
-
-# .envファイルからAPIキーを読み込み
+# 環境変数の読み込み
 load_dotenv()
+GOOGLE_CLOUD_VISION_API_KEY = os.getenv("GOOGLE_CLOUD_VISION_API_KEY")
+
+# Google Cloud Vision API を使って OCR を実行する関数
+def ocr_with_google_vision(image):
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_CLOUD_VISION_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    body = {
+        "requests": [
+            {
+                "image": {"content": img_base64},
+                "features": [{"type": "TEXT_DETECTION"}],
+                "imageContext": {"languageHints": ["ja"]}
+            }
+        ]
+    }
+
+    response = requests.post(url, headers=headers, data=json.dumps(body))
+    if response.status_code == 200:
+        annotations = response.json()["responses"][0].get("textAnnotations")
+        if annotations:
+            return annotations[0]["description"]
+        else:
+            return ""
+    else:
+        return f"[Error] {response.status_code}: {response.text}"
+
+# DeepL API を使った翻訳関数
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 
-# DeepL翻訳関数
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -30,32 +57,17 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# OCR前処理関数
-def preprocess_image(img):
-    img = np.array(img.convert("RGB"))
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.adaptiveThreshold(blur, 255,
-                                   cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                   cv2.THRESH_BINARY, 11, 2)
-    return thresh
-
-# Streamlit UI
-st.title("📸 Menu OCR & Translator")
-st.write("画像から日本語のテキストを抽出して英語に翻訳します。")
-
+# Streamlit アプリ本体
+st.title("📸 Menu OCR & 翻訳（Google Vision + DeepL）")
 uploaded_file = st.file_uploader("画像をアップロードしてください", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="アップロードされた画像", use_column_width=True)
 
-    st.subheader("🔍 OCR処理中...")
-    preprocessed = preprocess_image(image)
-    text = pytesseract.image_to_string(preprocessed, lang='jpn', config='--oem 3 --psm 6')
-
-    st.subheader("📝 抽出された日本語テキスト")
-    st.text_area("OCR結果", text, height=200)
+    st.subheader("🔍 Google Cloud Vision OCR結果")
+    text = ocr_with_google_vision(image)
+    st.text_area("抽出された日本語テキスト", text, height=200)
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if lines:
@@ -65,7 +77,7 @@ if uploaded_file is not None:
             with col1:
                 st.markdown(f"**🍽️ {line}**")
             with col2:
-                translation = translate_text_deepl(line)
-                st.markdown(f"➡️ {translation}")
+                translated = translate_text_deepl(line)
+                st.markdown(f"➡️ {translated}")
     else:
         st.warning("テキストが認識されませんでした。画像を確認してください。")
