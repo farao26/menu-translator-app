@@ -1,5 +1,4 @@
 streamlit
-streamlit-extras
+requests
 Pillow
 python-dotenv
-requests
