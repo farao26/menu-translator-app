@@ -1,37 +1,58 @@
 import streamlit as st
 from PIL import Image
 import io
+import os
 import base64
 import requests
 import json
+from dotenv import load_dotenv
+from streamlit_extras.let_it_rain import rain
+from streamlit_extras.app_logo import add_logo
+from streamlit_extras.switch_page_button import switch_page
+from streamlit_extras.colored_header import colored_header
 
-# secrets からAPIキーを取得
+# Secrets から読み込み
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 
-# --- CSS でオシャレに ---
+# CSS カスタマイズでカフェ風デザイン
 st.markdown("""
     <style>
-        .main-title {
-            font-size: 3em;
-            text-align: center;
-            font-weight: bold;
-            color: #4CAF50;
-        }
-        .subtitle {
-            font-size: 1.5em;
-            margin-top: 30px;
-            color: #555;
-        }
-        .ocr-text, .translation-text {
-            background-color: #f9f9f9;
-            padding: 10px;
-            border-radius: 10px;
-        }
+    body {
+        background-color: #fdf6f0;
+        color: #4b3832;
+    }
+    .stApp {
+        background-image: url("https://images.unsplash.com/photo-1509042239860-f550ce710b93");
+        background-size: cover;
+        background-position: center;
+    }
+    .title {
+        font-family: 'Courier New', monospace;
+        font-size: 2.8em;
+        font-weight: bold;
+        color: #3e2723;
+        text-align: center;
+        padding: 1rem;
+        background-color: rgba(255, 255, 255, 0.7);
+        border-radius: 10px;
+    }
+    .result-box {
+        background-color: rgba(255, 255, 255, 0.85);
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0px 2px 10px rgba(0,0,0,0.1);
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- OCR関数（Google Cloud Vision） ---
+st.markdown('<div class="title">📸 Cafe Menu OCR & 翻訳</div>', unsafe_allow_html=True)
+
+# 画像アップロード
+uploaded_file = st.file_uploader("カフェのメニュー画像をアップロードしてください ☕", type=["jpg", "jpeg", "png"])
+
+# OCR 関数
+
 def ocr_with_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
@@ -52,11 +73,15 @@ def ocr_with_google_vision(image):
     response = requests.post(url, headers=headers, data=json.dumps(body))
     if response.status_code == 200:
         annotations = response.json()["responses"][0].get("textAnnotations")
-        return annotations[0]["description"] if annotations else ""
+        if annotations:
+            return annotations[0]["description"]
+        else:
+            return ""
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# --- 翻訳関数（DeepL） ---
+# DeepL翻訳
+
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -67,29 +92,34 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
         "target_lang": target_lang,
     }
     response = requests.post(url, headers=headers, data=data)
-    return response.json()["translations"][0]["text"] if response.status_code == 200 else f"[Error] {response.status_code}: {response.text}"
+    if response.status_code == 200:
+        return response.json()["translations"][0]["text"]
+    else:
+        return f"[Error] {response.status_code}: {response.text}"
 
-# --- UI ---
-st.markdown("<div class='main-title'>📸 Menu Translator</div>", unsafe_allow_html=True)
-uploaded_file = st.file_uploader("画像をアップロードしてください", type=["jpg", "jpeg", "png"])
-
-if uploaded_file:
+if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="アップロード画像", use_column_width=True)
+    st.image(image, caption="🍽️ アップロードされた画像", use_column_width=True)
 
-    st.markdown("<div class='subtitle'>🔍 OCR結果（日本語）</div>", unsafe_allow_html=True)
-    text = ocr_with_google_vision(image)
-    st.markdown(f"<div class='ocr-text'>{text.replace('\n', '<br>')}</div>", unsafe_allow_html=True)
+    with st.spinner("🔍 OCR解析中..."):
+        text = ocr_with_google_vision(image)
+
+    st.markdown('<div class="result-box">', unsafe_allow_html=True)
+    st.subheader("📝 抽出された日本語テキスト")
+    st.text_area("OCR結果", text, height=200)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if lines:
-        st.markdown("<div class='subtitle'>🌍 DeepL 翻訳</div>", unsafe_allow_html=True)
+        st.subheader("🌍 DeepL 翻訳結果")
         for line in lines:
-            col1, col2 = st.columns([1, 1])
+            col1, col2 = st.columns(2)
             with col1:
-                st.markdown(f"<div class='ocr-text'>🍽️ {line}</div>", unsafe_allow_html=True)
+                st.markdown(f"**🍵 {line}**")
             with col2:
-                translation = translate_text_deepl(line)
-                st.markdown(f"<div class='translation-text'>➡️ {translation}</div>", unsafe_allow_html=True)
+                translated = translate_text_deepl(line)
+                st.markdown(f"➡️ {translated}")
     else:
-        st.warning("テキストが抽出できませんでした。画像を確認してください。")
+        st.warning("テキストが認識されませんでした。画像を確認してください。")
+
+    rain(emoji="☕", font_size=30, falling_speed=5, animation_length="infinite")
