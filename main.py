@@ -83,7 +83,7 @@ page_bg = """
 st.markdown(page_bg, unsafe_allow_html=True)
 
 # アプリ本体
-st.title("📖 高級レストラン風 Menu OCR & 翻訳")
+st.title("📖 Menu OCR & 翻訳")
 st.caption("画像から日本語メニューを読み取り、英語へ翻訳します。")
 
 uploaded_file = st.file_uploader("📷 メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
