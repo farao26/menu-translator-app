@@ -1,9 +1,5 @@
 streamlit
-pytesseract
-pillow
-opencv-python-headless
-numpy
+streamlit-extras
+Pillow
 python-dotenv
 requests
-streamlit-extras
-streamlit-extras
