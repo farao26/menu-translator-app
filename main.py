@@ -6,13 +6,13 @@ import base64
 import requests
 import json
 from dotenv import load_dotenv
-import re
+from datetime import datetime
 
-# --- Load secrets securely ---
+# 環境変数読み込み（Streamlit Cloudではsecretsを使用）
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 
-# --- OCR with Google Cloud Vision API ---
+# Google Cloud Vision OCR関数
 def ocr_with_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
@@ -39,7 +39,7 @@ def ocr_with_google_vision(image):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# --- DeepL translation ---
+# DeepL翻訳関数
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -55,77 +55,76 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# --- Currency converter ---
-def convert_yen_to_usd(text, rate=0.0068):
-    def replacer(match):
-        yen = int(match.group(1))
-        usd = round(yen * rate, 2)
-        return f"\u00a5{yen} (\u0024{usd})"
-
-    return re.sub(r"\\u00a5?(\\d{3,5})", replacer, text)
-
-# --- UI Layout ---
+# UI セットアップ
 st.set_page_config(layout="wide")
-st.markdown(
-    """
+st.markdown("""
     <style>
     body {
-        background: linear-gradient(135deg, #0f0f0f, #1c1c3c);
-        color: white;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    .block-container {
-        padding-top: 2rem;
-    }
-    .stTextArea textarea {
-        background-color: #1c1c3c;
+        background: linear-gradient(145deg, #001f3f, #1a1a2e);
         color: white;
     }
-    .translated-word {
-        display: inline-block;
-        background-color: #2a2a5a;
-        border-radius: 12px;
-        padding: 5px 10px;
-        margin: 3px;
-        font-size: 16px;
+    .card {
+        transition: transform .2s;
+        background-color: #00334e;
+        color: #fff;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 1rem;
     }
-    .translated-word a {
-        color: #f4d03f;
-        text-decoration: none;
+    .card:hover {
+        transform: scale(1.05);
+        background-color: #004b6b;
+    }
+    a {
+        color: #66ccff;
     }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
-st.title("🍽️ 高級レストラン風 メニュー翻訳アプリ")
-st.caption("画像から日本語メニューを抽出し、英語翻訳と画像検索リンクを提供します。")
+st.title("🍷 Elegant Menu Translator")
+st.write("メニュー画像をアップロードして、日本語を英語に翻訳します")
 
 uploaded_file = st.file_uploader("📸 メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
 
-if uploaded_file:
+# 翻訳履歴保存用
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="アップロードされた画像", use_column_width=True)
+    st.image(image, caption="アップロード画像", use_column_width=True)
     st.markdown("---")
 
+    # OCR
     text = ocr_with_google_vision(image)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 翻訳結果 & 検索リンク")
+        st.subheader("🌍 翻訳結果（カード＋ホバー拡大）")
         for line in lines:
             translated = translate_text_deepl(line)
-            translated = convert_yen_to_usd(translated)
+            st.session_state.history.append((line, translated))
+            
+            query = translated.replace(" ", "+")
+            search_url = f"https://www.google.com/search?tbm=isch&q={query}"
 
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.markdown(f"<div style='font-size:18px; padding:10px; background-color:#222; border-radius:8px;'><strong>{line}</strong></div>", unsafe_allow_html=True)
-            with col2:
-                words = translated.split()
-                word_html = "".join([
-                    f"<span class='translated-word'><a href='https://www.google.com/search?tbm=isch&q={word}' target='_blank'>{word}</a></span>"
-                    for word in words
-                ])
-                st.markdown(word_html, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="card">
+                <b>{line}</b><br>
+                <span style='color:#ccffcc;'>➡️ {translated}</span><br>
+                <a href="{search_url}" target="_blank">🔍 この料理を画像検索</a>
+            </div>
+            """, unsafe_allow_html=True)
     else:
         st.warning("テキストが認識されませんでした。画像を確認してください。")
+
+# 翻訳履歴の保存
+if st.session_state.history:
+    if st.button("💾 翻訳履歴を保存"):
+        filename = f"translation_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            for original, translated in st.session_state.history:
+                f.write(f"{original} => {translated}\n")
+        with open(filename, "rb") as f:
+            st.download_button("⬇️ ダウンロード", f, file_name=filename)
+
