@@ -6,22 +6,22 @@ import base64
 import requests
 import json
 import google.generativeai as genai
+from dotenv import load_dotenv
 
-# --- API Keys ---
+# --- 環境変数の読み込み（Secrets.tomlを想定） ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-# --- Gemini Init ---
+# --- Gemini 初期化 ---
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
 
-# --- OCR ---
+# --- OCR with Google Vision ---
 def ocr_with_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
     img_base64 = base64.b64encode(buffered.getvalue()).decode()
-
     url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_CLOUD_VISION_API_KEY}"
     headers = {"Content-Type": "application/json"}
     body = {
@@ -31,16 +31,15 @@ def ocr_with_google_vision(image):
             "imageContext": {"languageHints": ["ja"]}
         }]
     }
-
     response = requests.post(url, headers=headers, data=json.dumps(body))
     if response.status_code == 200:
         annotations = response.json()["responses"][0].get("textAnnotations")
         return annotations[0]["description"] if annotations else ""
     else:
-        return ""
+        return f"[Error] {response.status_code}: {response.text}"
 
-# --- Translation ---
-def translate_text_deepl(text, source_lang="JA", target_lang="EN"):
+# --- DeepL翻訳 ---
+def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
@@ -50,7 +49,10 @@ def translate_text_deepl(text, source_lang="JA", target_lang="EN"):
         "target_lang": target_lang,
     }
     response = requests.post(url, headers=headers, data=data)
-    return response.json()["translations"][0]["text"] if response.status_code == 200 else ""
+    if response.status_code == 200:
+        return response.json()["translations"][0]["text"]
+    else:
+        return f"[Error] {response.status_code}: {response.text}"
 
 # --- Dish Check & Info (Gemini) ---
 def get_dish_info_with_gemini(name_en):
@@ -70,61 +72,74 @@ If not a food, just answer: "NOT_A_DISH"
     except Exception as e:
         return f"Gemini Error: {str(e)}"
 
-# --- UI Config ---
-st.set_page_config(layout="wide", page_title="Elegant Menu Translator")
-st.markdown(
-    """
+# --- UIセットアップ ---
+st.set_page_config(layout="wide", page_title="Menu Translator (Gemini)")
+st.markdown("""
     <style>
     body {
-        background: linear-gradient(to right, #1e3c72, #2a5298);
+        background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
         color: white;
+        font-family: 'Helvetica Neue', sans-serif;
     }
-    .stTextArea textarea {
-        background-color: #1a1a2e; color: #fff;
+    .tooltip {
+        position: relative;
+        display: inline-block;
+        cursor: help;
     }
-    .stButton>button {
-        background-color: #003366;
-        color: white;
+    .tooltip .tooltiptext {
+        visibility: hidden;
+        width: 320px;
+        background-color: #444;
+        color: #fff;
+        text-align: left;
         border-radius: 8px;
+        padding: 12px;
+        position: absolute;
+        z-index: 1;
+        bottom: 125%; 
+        left: 50%;
+        margin-left: -160px;
+        opacity: 0;
+        transition: opacity 0.3s;
+        font-size: 14px;
+    }
+    .tooltip:hover .tooltiptext {
+        visibility: visible;
+        opacity: 1;
     }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
-# --- App UI ---
-st.title("🍽️ Elegant Menu Translator (Gemini + DeepL)")
-st.caption("Upload an image and get English translation + dish info.")
+st.title("🍷 Elegant Menu Translator")
+st.caption("Powered by Google Vision, DeepL & Gemini")
 
-uploaded_file = st.file_uploader("📷 Upload Japanese menu image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📸 Upload Menu Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded image", use_column_width=True)
+    st.image(image, caption="📷 Uploaded Image", use_column_width=True)
 
-    text = ocr_with_google_vision(image)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    ocr_text = ocr_with_google_vision(image)
+    lines = [line.strip() for line in ocr_text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌐 Translated Dishes & Info")
+        st.subheader("🌍 Translation & Hover Info")
         for line in lines:
             translated = translate_text_deepl(line)
             dish_info = get_dish_info_with_gemini(translated)
 
-            if "NOT_A_DISH" in dish_info:
-                continue  # Skip non-dish items
-
-            with st.container():
-                st.markdown(
-                    f"""
-                    <div style='padding:10px; border:1px solid #444; border-radius:10px; margin-bottom:15px; background-color:#222;'>
-                        <b style='font-size:20px; color:#ffd700;' title="{dish_info.replace('"', '&quot;')}">{translated}</b>
-                        <br>
-                        <span style='color:#aaa; font-size:14px;'>{line}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+            if "NOT_A_DISH" not in dish_info:
+                # ホバー付きカード表示
+                html = f"""
+                <div class="tooltip">
+                    <span style="font-weight:bold; color:#ffd700; font-size:18px;">🍽️ {translated}</span>
+                    <div class="tooltiptext">{dish_info.replace('\n', '<br>')}</div>
+                </div>
+                """
+                st.markdown(html, unsafe_allow_html=True)
+            else:
+                # 非料理の翻訳は表示しない or ログ出力だけでもOK
+                pass
     else:
-        st.warning("No text detected. Please try a clearer image.")
-            
+        st.warning("画像から文字を検出できませんでした。")
+         
