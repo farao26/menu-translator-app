@@ -5,21 +5,23 @@ import os
 import base64
 import requests
 import json
+import openai
 from dotenv import load_dotenv
-from datetime import datetime
 
-# 環境変数読み込み（Streamlit Cloudではsecretsを使用）
-GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
+# --- 読み込み ---
+load_dotenv()
+GOOGLE_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+openai.api_key = OPENAI_API_KEY
 
-# Google Cloud Vision OCR関数
-def ocr_with_google_vision(image):
+# --- OCR関数 ---
+def ocr_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
     img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_CLOUD_VISION_API_KEY}"
-    headers = {"Content-Type": "application/json"}
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
     body = {
         "requests": [
             {
@@ -29,7 +31,8 @@ def ocr_with_google_vision(image):
             }
         ]
     }
-    response = requests.post(url, headers=headers, data=json.dumps(body))
+
+    response = requests.post(url, headers={"Content-Type": "application/json"}, data=json.dumps(body))
     if response.status_code == 200:
         annotations = response.json()["responses"][0].get("textAnnotations")
         if annotations:
@@ -39,92 +42,52 @@ def ocr_with_google_vision(image):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# DeepL翻訳関数
-def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
+# --- DeepL翻訳 ---
+def translate_deepl(text):
     url = "https://api-free.deepl.com/v2/translate"
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
         "auth_key": DEEPL_API_KEY,
         "text": text,
-        "source_lang": source_lang,
-        "target_lang": target_lang,
+        "source_lang": "JA",
+        "target_lang": "EN"
     }
-    response = requests.post(url, headers=headers, data=data)
-    if response.status_code == 200:
-        return response.json()["translations"][0]["text"]
-    else:
-        return f"[Error] {response.status_code}: {response.text}"
+    response = requests.post(url, data=data)
+    return response.json()["translations"][0]["text"] if response.status_code == 200 else "翻訳エラー"
 
-# UI セットアップ
-st.set_page_config(layout="wide")
-st.markdown("""
-    <style>
-    body {
-        background: linear-gradient(145deg, #001f3f, #1a1a2e);
-        color: white;
-    }
-    .card {
-        transition: transform .2s;
-        background-color: #00334e;
-        color: #fff;
-        border-radius: 10px;
-        padding: 1rem;
-        margin-bottom: 1rem;
-    }
-    .card:hover {
-        transform: scale(1.05);
-        background-color: #004b6b;
-    }
-    a {
-        color: #66ccff;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# --- ChatGPTで料理説明取得 ---
+def get_dish_analysis(dish_name):
+    prompt = f"""料理名：「{dish_name}」\n1. 一般的に使われる材料（簡潔に）\n2. アレルギーの可能性のある食材\n3. 簡単な説明（50文字以内）\n4. 歴史や小話（50文字以内）"""
+    try:
+        res = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return res.choices[0].message.content
+    except Exception as e:
+        return f"Error: {e}"
 
-st.title("🍷 Elegant Menu Translator")
-st.write("メニュー画像をアップロードして、日本語を英語に翻訳します")
+# --- UI構成 ---
+st.set_page_config(layout="wide", page_title="Menu Translator")
+st.title("🍽️ 高級感のあるメニュー翻訳アプリ")
+st.markdown("画像から日本語メニューを英語に翻訳し、さらに料理の解説も表示します。")
 
-uploaded_file = st.file_uploader("📸 メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
-
-# 翻訳履歴保存用
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-if uploaded_file is not None:
+uploaded_file = st.file_uploader("メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
+if uploaded_file:
     image = Image.open(uploaded_file)
-    st.image(image, caption="アップロード画像", use_column_width=True)
-    st.markdown("---")
+    st.image(image, caption="アップロードされた画像", use_column_width=True)
 
-    # OCR
-    text = ocr_with_google_vision(image)
+    text = ocr_google_vision(image)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 翻訳結果（カード＋ホバー拡大）")
+        st.markdown("---")
+        st.subheader("翻訳と解説結果")
         for line in lines:
-            translated = translate_text_deepl(line)
-            st.session_state.history.append((line, translated))
-            
-            query = translated.replace(" ", "+")
-            search_url = f"https://www.google.com/search?tbm=isch&q={query}"
-
-            st.markdown(f"""
-            <div class="card">
-                <b>{line}</b><br>
-                <span style='color:#ccffcc;'>➡️ {translated}</span><br>
-                <a href="{search_url}" target="_blank">🔍 この料理を画像検索</a>
-            </div>
-            """, unsafe_allow_html=True)
+            translated = translate_deepl(line)
+            with st.expander(f"🍴 {line} ➡️ {translated}"):
+                st.markdown(f"**🔍 詳細解析：**")
+                st.markdown(get_dish_analysis(line))
     else:
-        st.warning("テキストが認識されませんでした。画像を確認してください。")
+        st.warning("テキストが読み取れませんでした。画像を確認してください。")
 
-# 翻訳履歴の保存
-if st.session_state.history:
-    if st.button("💾 翻訳履歴を保存"):
-        filename = f"translation_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        with open(filename, "w", encoding="utf-8") as f:
-            for original, translated in st.session_state.history:
-                f.write(f"{original} => {translated}\n")
-        with open(filename, "rb") as f:
-            st.download_button("⬇️ ダウンロード", f, file_name=filename)
-
+           
