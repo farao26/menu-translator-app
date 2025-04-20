@@ -5,17 +5,18 @@ import os
 import base64
 import requests
 import json
-from openai import OpenAI
+import google.generativeai as genai
 
-# --- SecretsからAPIキー取得 ---
+# --- API Keys ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
-OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-# --- OpenAI 初期化 ---
-client = OpenAI(api_key=OPENAI_API_KEY)
+# --- Gemini Init ---
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-pro")
 
-# --- OCR with Google Cloud Vision ---
+# --- OCR ---
 def ocr_with_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
@@ -24,27 +25,22 @@ def ocr_with_google_vision(image):
     url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_CLOUD_VISION_API_KEY}"
     headers = {"Content-Type": "application/json"}
     body = {
-        "requests": [
-            {
-                "image": {"content": img_base64},
-                "features": [{"type": "TEXT_DETECTION"}],
-                "imageContext": {"languageHints": ["ja"]}
-            }
-        ]
+        "requests": [{
+            "image": {"content": img_base64},
+            "features": [{"type": "TEXT_DETECTION"}],
+            "imageContext": {"languageHints": ["ja"]}
+        }]
     }
 
     response = requests.post(url, headers=headers, data=json.dumps(body))
     if response.status_code == 200:
         annotations = response.json()["responses"][0].get("textAnnotations")
-        if annotations:
-            return annotations[0]["description"]
-        else:
-            return ""
+        return annotations[0]["description"] if annotations else ""
     else:
-        return f"[Error] {response.status_code}: {response.text}"
+        return ""
 
-# --- DeepL 翻訳 ---
-def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
+# --- Translation ---
+def translate_text_deepl(text, source_lang="JA", target_lang="EN"):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
@@ -54,52 +50,37 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
         "target_lang": target_lang,
     }
     response = requests.post(url, headers=headers, data=data)
-    if response.status_code == 200:
-        return response.json()["translations"][0]["text"]
-    else:
-        return f"[Error] {response.status_code}: {response.text}"
+    return response.json()["translations"][0]["text"] if response.status_code == 200 else ""
 
-# --- GPTによる料理情報生成（英語出力） ---
-def get_dish_info_from_gpt(dish_name):
+# --- Dish Check & Info (Gemini) ---
+def get_dish_info_with_gemini(name_en):
     prompt = f"""
-Dish Name: "{dish_name}"
-Please provide the following:
+Is "{name_en}" a food dish? If it is, answer in the following format:
 
-1. Commonly used ingredients (3-5 items, concise).
-2. Possible allergens. Begin with "Commonly includes...".
-3. Short description within 50 characters.
-   - If the dish is well-known (many web results), just give a simple description.
-   - If the dish is rare (few web results), end with "It might be something unexpected."
-4. Brief history or trivia (within 50 characters).
-    """
+1. Common Ingredients (3–5)
+2. Potential Allergens (start with "Generally includes...")
+3. Short Description (within 50 characters)
+4. History / Trivia (within 50 characters)
+
+If not a food, just answer: "NOT_A_DISH"
+"""
     try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a culinary expert for international and Japanese cuisine."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
+        response = model.generate_content(prompt)
+        return response.text.strip()
     except Exception as e:
-        return f"GPT Error: {str(e)}"
+        return f"Gemini Error: {str(e)}"
 
-# --- UI 設定 ---
-st.set_page_config(layout="wide", page_title="Menu Translator")
-st.markdown("""
+# --- UI Config ---
+st.set_page_config(layout="wide", page_title="Elegant Menu Translator")
+st.markdown(
+    """
     <style>
     body {
-        background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+        background: linear-gradient(to right, #1e3c72, #2a5298);
         color: white;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    .block-container {
-        padding-top: 2rem;
     }
     .stTextArea textarea {
-        background-color: #1a1a2e;
-        color: #fff;
+        background-color: #1a1a2e; color: #fff;
     }
     .stButton>button {
         background-color: #003366;
@@ -107,40 +88,43 @@ st.markdown("""
         border-radius: 8px;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
-# --- アプリUI ---
-st.title("🍷 Elegant Menu Translator")
-st.caption("Translate with Style — Smart. Bilingual. Beautiful.")
-st.write("Upload a menu image to translate and get culinary insights.")
+# --- App UI ---
+st.title("🍽️ Elegant Menu Translator (Gemini + DeepL)")
+st.caption("Upload an image and get English translation + dish info.")
 
-uploaded_file = st.file_uploader("📸 Upload your menu image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📷 Upload Japanese menu image", type=["jpg", "jpeg", "png"])
 
-if uploaded_file is not None:
+if uploaded_file:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+    st.image(image, caption="Uploaded image", use_column_width=True)
 
     text = ocr_with_google_vision(image)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 Translation & Culinary Insight")
+        st.subheader("🌐 Translated Dishes & Info")
         for line in lines:
             translated = translate_text_deepl(line)
+            dish_info = get_dish_info_with_gemini(translated)
+
+            if "NOT_A_DISH" in dish_info:
+                continue  # Skip non-dish items
 
             with st.container():
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    info = get_dish_info_from_gpt(translated)
-                    hover_html = f"""
-                    <span style='font-size:18px; font-weight:bold; color:#ffd700;' title="{info}">
-                        {line}
-                    </span><br>
-                    <span style='color:#66ccff; font-size:16px;'>➡️ {translated}</span>
-                    """
-                    st.markdown(hover_html, unsafe_allow_html=True)
-                with col2:
-                    st.markdown(f"<div style='background:#111;padding:8px;border-radius:8px;color:#ddd;font-size:14px;'><pre>{info}</pre></div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"""
+                    <div style='padding:10px; border:1px solid #444; border-radius:10px; margin-bottom:15px; background-color:#222;'>
+                        <b style='font-size:20px; color:#ffd700;' title="{dish_info.replace('"', '&quot;')}">{translated}</b>
+                        <br>
+                        <span style='color:#aaa; font-size:14px;'>{line}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
     else:
-        st.warning("No text detected. Please check the image.")
-           
+        st.warning("No text detected. Please try a clearer image.")
+            
