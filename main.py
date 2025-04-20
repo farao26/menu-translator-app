@@ -169,10 +169,10 @@ if uploaded_file:
                 else:
                     st.write("No image found")
             with col2:
-                st.markdown(f"<b style='font-size:20px;color:#ffdd57'>{translated}</b>", unsafe_allow_html=True)
                 st.markdown(f"""
-                <div style='background-color:#1c1c1c;padding:10px;border-radius:10px;'>
-                <pre style='white-space:pre-wrap;'>{gpt_info}</pre>
+                <div style='background-color:#f8f8f8;color:#222;padding:15px;border-radius:10px;border: 1px solid #ccc;font-size:15px;line-height:1.6;box-shadow:2px 2px 5px rgba(0,0,0,0.2);'>
+                <b style='color:#004466;'>Gemini Insight</b><br>
+                <pre style='white-space:pre-wrap;font-family:inherit;background:none;border:none;'>{gpt_info}</pre>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -184,4 +184,3 @@ if st.session_state.history:
                 f.write(f"{original} => {translated}\n")
         with open(filename, "rb") as f:
             st.download_button("⬇️ Download", f, file_name=filename)
-            
