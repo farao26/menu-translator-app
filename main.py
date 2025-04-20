@@ -7,7 +7,6 @@ import requests
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
-from streamlit_extras.animated_headline import animated_headline
 
 # SecretsからAPIキー取得
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
@@ -111,7 +110,8 @@ st.markdown(
 )
 
 # --- アプリUI ---
-animated_headline("🍷 Elegant Menu Translator", ["Translate with Style", "Smart. Bilingual. Beautiful."])
+st.title("🍷 Elegant Menu Translator")
+st.caption("Translate with Style — Smart. Bilingual. Beautiful.")
 st.write("画像をアップロードして、料理を英語に翻訳 + 詳細情報も表示します。")
 
 uploaded_file = st.file_uploader("📸 メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
@@ -138,5 +138,5 @@ if uploaded_file is not None:
                         st.markdown(f"<pre style='background-color:#222; color:#eee; border-radius:8px; padding:10px;'>{info}</pre>", unsafe_allow_html=True)
     else:
         st.warning("文字が検出されませんでした。画像を再確認してください。")
+
         
-          
