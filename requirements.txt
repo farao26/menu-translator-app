@@ -1,7 +1,8 @@
 streamlit
-openai
+Pillow
 requests
 python-dotenv
-Pillow
-streamlit-extras==0.2.7
+google-generativeai
+
 # 再デプロイのためのコメント
+google-generativeai
