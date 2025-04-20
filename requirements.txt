@@ -1,6 +1,6 @@
 streamlit
 openai
 requests
-Pillow
 python-dotenv
+Pillow
 streamlit-extras
