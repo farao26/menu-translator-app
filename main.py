@@ -8,13 +8,13 @@ import json
 import re
 from datetime import datetime
 
-# SecretsからAPIキー取得
+# --- APIキーの読み込み（secrets.toml から） ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 GOOGLE_CUSTOM_SEARCH_API_KEY = st.secrets["GOOGLE_CUSTOM_SEARCH_API_KEY"]
 GOOGLE_CSE_ID = st.secrets["GOOGLE_CSE_ID"]
 
-# OCR (Google Vision API)
+# --- OCR（Google Cloud Vision） ---
 def ocr_with_google_vision(image):
     def remove_prices(text):
         lines = text.split('\n')
@@ -52,7 +52,7 @@ def ocr_with_google_vision(image):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# DeepL翻訳
+# --- 翻訳（DeepL） ---
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -68,7 +68,7 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# Google画像検索
+# --- 画像検索（Google Custom Search） ---
 def get_google_image(query, api_key, cse_id):
     search_url = "https://www.googleapis.com/customsearch/v1"
     params = {
@@ -76,19 +76,25 @@ def get_google_image(query, api_key, cse_id):
         "cx": cse_id,
         "q": query,
         "searchType": "image",
-        "num": 1,
-        "safe": "high",
+        "num": 3,
+        "safe": "medium",
         "imgType": "photo"
     }
-    response = requests.get(search_url, params=params)
-    if response.status_code == 200:
-        results = response.json()
-        if "items" in results:
-            return results["items"][0]["link"]
-    return None
 
-# UIデザイン
-st.set_page_config(layout="wide", page_title="Elegant Menu Translator")
+    try:
+        response = requests.get(search_url, params=params)
+        if response.status_code == 200:
+            results = response.json()
+            items = results.get("items", [])
+            if items:
+                return items[0]["link"]
+        # 見つからない場合の代替画像
+        return "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
+    except Exception as e:
+        return None
+
+# --- UIセットアップ ---
+st.set_page_config(layout="wide")
 st.markdown("""
     <style>
     body {
@@ -113,58 +119,50 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🍷 Elegant Menu Translator")
-st.caption("Upload a menu image, translate to English, and see matching dish images!")
+st.title("🍽️ Elegant Menu Translator")
+st.write("メニュー画像をアップロードして、日本語を英語に翻訳 + 写真を表示")
 
-uploaded_file = st.file_uploader("📸 Upload menu image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📸 メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
 
-# 履歴管理
+# 履歴保持
 if "history" not in st.session_state:
     st.session_state.history = []
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
-    st.markdown("---")
+    st.image(image, caption="アップロードされた画像", use_column_width=True)
 
     text = ocr_with_google_vision(image)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 Translation Results (Hoverable Cards)")
+        st.subheader("🌍 翻訳＆画像結果")
         for line in lines:
             translated = translate_text_deepl(line)
             st.session_state.history.append((line, translated))
 
-            image_url = get_google_image(f"Japanese {translated} food", GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
+            # クエリ：日本語 + 英語 + 食事のヒント
+            query = f"Japanese cuisine {line} {translated} food"
+            image_url = get_google_image(query, GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
 
-            if image_url:
-                st.markdown(f"""
-                <div class="card">
-                    <b>{line}</b><br>
-                    <span style='color:#ccffcc;'>➡️ {translated}</span><br>
-                    <img src="{image_url}" width="300"><br>
-                    <a href="{image_url}" target="_blank">🔍 View dish image</a>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class="card">
-                    <b>{line}</b><br>
-                    <span style='color:#ccffcc;'>➡️ {translated}</span><br>
-                    <i>🔍 No image found</i>
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="card">
+                <b>{line}</b><br>
+                <span style='color:#ccffcc;'>➡️ {translated}</span><br>
+                <img src="{image_url}" width="300"><br>
+                <a href="{image_url}" target="_blank">🔍 この料理を画像で検索</a>
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        st.warning("No text recognized. Please check the image.")
+        st.warning("文字が認識できませんでした。画像を確認してください。")
 
-# 翻訳履歴保存
+# --- 翻訳履歴の保存 ---
 if st.session_state.history:
-    if st.button("💾 Save translation history"):
+    if st.button("💾 翻訳履歴を保存"):
         filename = f"translation_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         with open(filename, "w", encoding="utf-8") as f:
             for original, translated in st.session_state.history:
                 f.write(f"{original} => {translated}\n")
         with open(filename, "rb") as f:
-            st.download_button("⬇️ Download", f, file_name=filename)
-             
+            st.download_button("⬇️ ダウンロード", f, file_name=filename)
+            
