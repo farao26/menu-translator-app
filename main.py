@@ -7,17 +7,21 @@ import json
 import re
 from datetime import datetime
 
-# --- SecretsからAPIキー取得 ---
+# --- APIキー読み込み ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 GOOGLE_CUSTOM_SEARCH_API_KEY = st.secrets["GOOGLE_CUSTOM_SEARCH_API_KEY"]
 GOOGLE_CSE_ID = st.secrets["GOOGLE_CSE_ID"]
 
-# --- OCR (Google Vision API) ---
+# --- OCR（Google Cloud Vision） ---
 def ocr_with_google_vision(image):
     def remove_prices(text):
         lines = text.split('\n')
-        cleaned_lines = [re.sub(r'[\u00A5\uFFE5]?\d{2,5}円?', '', line).strip() for line in lines if line.strip()]
+        cleaned_lines = []
+        for line in lines:
+            line = re.sub(r'[¥￥]?\d{2,5}円?', '', line)
+            if line.strip():
+                cleaned_lines.append(line.strip())
         return '\n'.join(cleaned_lines)
 
     buffered = io.BytesIO()
@@ -35,13 +39,19 @@ def ocr_with_google_vision(image):
             }
         ]
     }
+
     response = requests.post(url, headers=headers, data=json.dumps(body))
     if response.status_code == 200:
         annotations = response.json()["responses"][0].get("textAnnotations")
-        return remove_prices(annotations[0]["description"]) if annotations else ""
-    return f"[Error] {response.status_code}: {response.text}"
+        if annotations:
+            raw_text = annotations[0]["description"]
+            return remove_prices(raw_text)
+        else:
+            return ""
+    else:
+        return f"[Error] {response.status_code}: {response.text}"
 
-# --- DeepL翻訳 ---
+# --- 翻訳（DeepL） ---
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -52,10 +62,14 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
         "target_lang": target_lang,
     }
     response = requests.post(url, headers=headers, data=data)
-    return response.json()["translations"][0]["text"] if response.status_code == 200 else text
+    if response.status_code == 200:
+        return response.json()["translations"][0]["text"]
+    else:
+        return f"[Error] {response.status_code}: {response.text}"
 
-# --- Google画像検索 ---
+# --- 画像検索（Google Custom Search） ---
 def get_google_image(query, api_key, cse_id):
+    search_url = "https://www.googleapis.com/customsearch/v1"
     params = {
         "key": api_key,
         "cx": cse_id,
@@ -65,25 +79,26 @@ def get_google_image(query, api_key, cse_id):
         "safe": "high",
         "imgType": "photo"
     }
-    response = requests.get("https://www.googleapis.com/customsearch/v1", params=params)
+    response = requests.get(search_url, params=params)
     if response.status_code == 200:
-        items = response.json().get("items", [])
-        return items[0]["link"] if items else None
+        results = response.json()
+        if "items" in results:
+            return results["items"][0]["link"]
     return None
 
-# --- UIセットアップ ---
+# --- UIセットアップ（背景色を #d2b74e に） ---
 st.set_page_config(layout="wide", page_title="Elegant Menu Translator")
 st.markdown("""
     <style>
     body {
-        background: linear-gradient(145deg, #f9f5f0, #efe8dc);
-        color: #3e3e3e;
+        background-color: #d2b74e !important;
+        color: #3e2e20;
         font-family: 'Helvetica Neue', sans-serif;
     }
     .card {
         transition: transform .2s;
-        background-color: #fff9f2;
-        color: #3e3e3e;
+        background-color: #fdf8e7;
+        color: #3e2e20;
         border-radius: 12px;
         padding: 1rem;
         margin-bottom: 1rem;
@@ -91,19 +106,22 @@ st.markdown("""
     }
     .card:hover {
         transform: scale(1.03);
-        background-color: #fdf5e6;
+        background-color: #f7efcc;
     }
     a {
-        color: #8b5e3c;
+        color: #3e2e20;
+        text-decoration: underline;
     }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("\U0001F374 Elegant Menu Translator")
-st.caption("Upload a menu image, translate to English, and explore dish images!")
+# --- UIコンテンツ ---
+st.title("🍽️ Elegant Menu Translator")
+st.caption("Upload a menu image, translate Japanese to English, and see matching images.")
 
-uploaded_file = st.file_uploader("\U0001F4F7 Upload menu image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📸 Upload Menu Image", type=["jpg", "jpeg", "png"])
 
+# --- セッション履歴 ---
 if "history" not in st.session_state:
     st.session_state.history = []
 
@@ -116,32 +134,31 @@ if uploaded_file is not None:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("\U0001F30D Translated Dishes")
+        st.subheader("🌍 Translation & Image")
         for line in lines:
             translated = translate_text_deepl(line)
             st.session_state.history.append((line, translated))
 
-            query = f"Japanese cuisine {line} {translated}"
-            image_url = get_google_image(query, GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
+            image_url = get_google_image(f"{line} {translated} Japanese food", GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
 
             st.markdown(f"""
             <div class="card">
                 <b>{line}</b><br>
-                <span style='color:#8b5e3c;'>➡️ {translated}</span><br>
-                {'<img src="' + image_url + '" width="300">' if image_url else '<i>No image found</i>'}<br>
-                {'<a href="' + image_url + '" target="_blank">🔍 View dish image</a>' if image_url else ''}
+                <span style='color:#5e4635;'>➡️ {translated}</span><br>
+                <img src="{image_url}" width="300"><br>
+                <a href="{image_url}" target="_blank">🔍 Search image</a>
             </div>
             """, unsafe_allow_html=True)
     else:
         st.warning("No text recognized. Please check the image.")
 
-# --- 翻訳履歴の保存 ---
+# --- 翻訳履歴保存 ---
 if st.session_state.history:
-    if st.button("💾 Save translation history"):
+    if st.button("💾 Save Translation History"):
         filename = f"translation_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         with open(filename, "w", encoding="utf-8") as f:
             for original, translated in st.session_state.history:
                 f.write(f"{original} => {translated}\n")
         with open(filename, "rb") as f:
             st.download_button("⬇️ Download", f, file_name=filename)
-
+            
