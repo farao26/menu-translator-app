@@ -18,7 +18,7 @@ GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
 # --- Gemini API 初期化 ---
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-pro")
+model = genai.GenerativeModel(model_name="models/gemini-pro")
 
 # --- OCR関数（Google Cloud Vision） ---
 def ocr_with_google_vision(image):
