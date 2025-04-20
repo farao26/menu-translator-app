@@ -7,16 +7,17 @@ import requests
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
+from streamlit_extras.animated_headline import animated_headline
 
-# SecretsからAPIキー取得
+# --- SecretsからAPIキー取得 ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 
-# OpenAI 初期化
+# --- OpenAI初期化 ---
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- OCR with Google Vision ---
+# --- Google Cloud Vision OCR ---
 def ocr_with_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
@@ -60,20 +61,36 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# --- GPT補足情報生成 ---
+# --- OpenAI：これは料理名か？ ---
+def is_dish_name(text):
+    prompt = f"Is '{text}' likely to be the name of a Japanese dish or food item? Answer only 'yes' or 'no'."
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0
+        )
+        result = response.choices[0].message.content.strip().lower()
+        return result.startswith("yes")
+    except Exception as e:
+        return False
+
+# --- OpenAI：料理の説明生成（英語）---
 def get_dish_info_from_gpt(dish_name):
     prompt = f"""
-料理名：「{dish_name}」
-1. 一般的に使われる材料（簡潔に3〜5個）  
-2. アレルギーの可能性のある食材  
-3. 簡単な説明（50文字以内、知名度で条件分岐）  
-4. 歴史や小話（50文字以内）
+Dish Name: "{dish_name}"
+1. Commonly used ingredients (3~5 items)
+2. Possible allergenic ingredients
+3. Simple description (within 50 characters; add note if rare)
+4. History or trivia (within 50 characters)
     """
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "あなたは日本料理の専門家です。"},
+                {"role": "system", "content": "You are an expert in Japanese cuisine."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7
@@ -82,7 +99,7 @@ def get_dish_info_from_gpt(dish_name):
     except Exception as e:
         return f"GPT Error: {str(e)}"
 
-# --- UIセットアップ ---
+# --- UIスタイル ---
 st.set_page_config(layout="wide", page_title="Menu Translator")
 st.markdown(
     """
@@ -110,33 +127,34 @@ st.markdown(
 )
 
 # --- アプリUI ---
-st.title("🍷 Elegant Menu Translator")
-st.caption("Translate with Style — Smart. Bilingual. Beautiful.")
-st.write("画像をアップロードして、料理を英語に翻訳 + 詳細情報も表示します。")
+animated_headline("🍷 Elegant Menu Translator", ["Translate with Style", "Smart. Bilingual. Beautiful."])
+st.write("Upload a Japanese menu image to translate dish names and view details.")
 
-uploaded_file = st.file_uploader("📸 メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📸 Upload a menu image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="アップロードされた画像", use_column_width=True)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
     text = ocr_with_google_vision(image)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 翻訳 & 情報")
+        st.subheader("🌍 Translations & Details (only for food items)")
         for line in lines:
-            translated = translate_text_deepl(line)
-            with st.container():
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.markdown(f"<div style='font-size:18px; font-weight:bold; color:#ffd700;'>{line}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='color:#66ccff; font-size:16px;'>➡️ {translated}</div>", unsafe_allow_html=True)
-                with col2:
-                    with st.expander("🍽️ 料理の詳細"):
-                        info = get_dish_info_from_gpt(translated)
-                        st.markdown(f"<pre style='background-color:#222; color:#eee; border-radius:8px; padding:10px;'>{info}</pre>", unsafe_allow_html=True)
+            if is_dish_name(line):
+                translated = translate_text_deepl(line)
+                with st.container():
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        st.markdown(f"<div style='font-size:18px; font-weight:bold; color:#ffd700;'>{line}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='color:#66ccff; font-size:16px;'>➡️ {translated}</div>", unsafe_allow_html=True)
+                    with col2:
+                        with st.expander("🍽️ Dish Details"):
+                            info = get_dish_info_from_gpt(translated)
+                            st.markdown(f"<pre style='background-color:#222; color:#eee; border-radius:8px; padding:10px;'>{info}</pre>", unsafe_allow_html=True)
+            else:
+                continue
     else:
-        st.warning("文字が検出されませんでした。画像を再確認してください。")
-
-        
+        st.warning("No text detected. Please try another image.")
+          

@@ -3,5 +3,5 @@ openai
 requests
 python-dotenv
 Pillow
-streamlit-extras
+streamlit-extras==0.2.7
 # 再デプロイのためのコメント
