@@ -1,19 +1,20 @@
 import streamlit as st
 from PIL import Image
 import io
+import os
 import base64
 import requests
 import json
 import re
 from datetime import datetime
 
-# --- APIキー読み込み ---
+# --- APIキーの読み込み ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 GOOGLE_CUSTOM_SEARCH_API_KEY = st.secrets["GOOGLE_CUSTOM_SEARCH_API_KEY"]
 GOOGLE_CSE_ID = st.secrets["GOOGLE_CSE_ID"]
 
-# --- OCR（Google Cloud Vision） ---
+# --- OCR with Google Vision ---
 def ocr_with_google_vision(image):
     def remove_prices(text):
         lines = text.split('\n')
@@ -46,12 +47,9 @@ def ocr_with_google_vision(image):
         if annotations:
             raw_text = annotations[0]["description"]
             return remove_prices(raw_text)
-        else:
-            return ""
-    else:
-        return f"[Error] {response.status_code}: {response.text}"
+    return ""
 
-# --- 翻訳（DeepL） ---
+# --- DeepL翻訳 ---
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -64,10 +62,9 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     response = requests.post(url, headers=headers, data=data)
     if response.status_code == 200:
         return response.json()["translations"][0]["text"]
-    else:
-        return f"[Error] {response.status_code}: {response.text}"
+    return text
 
-# --- 画像検索（Google Custom Search） ---
+# --- Google画像検索 ---
 def get_google_image(query, api_key, cse_id):
     search_url = "https://www.googleapis.com/customsearch/v1"
     params = {
@@ -86,42 +83,41 @@ def get_google_image(query, api_key, cse_id):
             return results["items"][0]["link"]
     return None
 
-# --- UIセットアップ（背景色を #d2b74e に） ---
+# --- UIセットアップ ---
 st.set_page_config(layout="wide", page_title="Elegant Menu Translator")
 st.markdown("""
     <style>
     body {
         background-color: #d2b74e !important;
-        color: #3e2e20;
+        color: #333333;
         font-family: 'Helvetica Neue', sans-serif;
+    }
+    .stApp {
+        background-color: #d2b74e !important;
     }
     .card {
         transition: transform .2s;
-        background-color: #fdf8e7;
-        color: #3e2e20;
-        border-radius: 12px;
+        background-color: #00334e;
+        color: #fff;
+        border-radius: 10px;
         padding: 1rem;
         margin-bottom: 1rem;
-        box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
     }
     .card:hover {
-        transform: scale(1.03);
-        background-color: #f7efcc;
+        transform: scale(1.05);
+        background-color: #004b6b;
     }
     a {
-        color: #3e2e20;
-        text-decoration: underline;
+        color: #000;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- UIコンテンツ ---
 st.title("🍽️ Elegant Menu Translator")
-st.caption("Upload a menu image, translate Japanese to English, and see matching images.")
+st.caption("Upload a menu image, translate to English, and see dish images.")
 
-uploaded_file = st.file_uploader("📸 Upload Menu Image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📸 Upload menu image", type=["jpg", "jpeg", "png"])
 
-# --- セッション履歴 ---
 if "history" not in st.session_state:
     st.session_state.history = []
 
@@ -134,23 +130,24 @@ if uploaded_file is not None:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 Translation & Image")
+        st.subheader("🌍 Translations & Images")
         for line in lines:
             translated = translate_text_deepl(line)
             st.session_state.history.append((line, translated))
 
-            image_url = get_google_image(f"{line} {translated} Japanese food", GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
+            query = f"{line} {translated} Japanese food"
+            image_url = get_google_image(query, GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
 
             st.markdown(f"""
             <div class="card">
                 <b>{line}</b><br>
-                <span style='color:#5e4635;'>➡️ {translated}</span><br>
-                <img src="{image_url}" width="300"><br>
-                <a href="{image_url}" target="_blank">🔍 Search image</a>
+                <span style='color:#ccffcc;'>➡️ {translated}</span><br>
+                <img src="{image_url if image_url else 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png'}" width="300"><br>
+                <a href="{image_url}" target="_blank">🔍 Search dish image</a>
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.warning("No text recognized. Please check the image.")
+        st.warning("No text detected. Please check the image.")
 
 # --- 翻訳履歴保存 ---
 if st.session_state.history:
