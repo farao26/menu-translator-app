@@ -5,18 +5,17 @@ import os
 import base64
 import requests
 import json
-from dotenv import load_dotenv
 from openai import OpenAI
 
-# SecretsからAPIキー取得
+# --- SecretsからAPIキー取得 ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 
-# OpenAI 初期化
+# --- OpenAI 初期化 ---
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- OCR with Google Vision ---
+# --- OCR with Google Cloud Vision ---
 def ocr_with_google_vision(image):
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
@@ -44,7 +43,7 @@ def ocr_with_google_vision(image):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# --- DeepL翻訳 ---
+# --- DeepL 翻訳 ---
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -60,39 +59,24 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     else:
         return f"[Error] {response.status_code}: {response.text}"
 
-# --- GPTで料理か判定 ---
-def is_food_item(text):
-    prompt = f"""
-次の単語「{text}」は料理名または食べ物の名前ですか？はい/いいえ で答えてください。
-"""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "あなたはレストランメニューを識別する専門家です。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0
-        )
-        reply = response.choices[0].message.content.strip().lower()
-        return "はい" in reply or "yes" in reply
-    except Exception as e:
-        return False
-
-# --- GPT補足情報生成 ---
+# --- GPTによる料理情報生成（英語出力） ---
 def get_dish_info_from_gpt(dish_name):
     prompt = f"""
-料理名：「{dish_name}」
-1. 一般的に使われる材料（簡潔に3〜5個）  
-2. アレルギーの可能性のある食材  
-3. 簡単な説明（50文字以内、知名度で条件分岐）  
-4. 歴史や小話（50文字以内）
+Dish Name: "{dish_name}"
+Please provide the following:
+
+1. Commonly used ingredients (3-5 items, concise).
+2. Possible allergens. Begin with "Commonly includes...".
+3. Short description within 50 characters.
+   - If the dish is well-known (many web results), just give a simple description.
+   - If the dish is rare (few web results), end with "It might be something unexpected."
+4. Brief history or trivia (within 50 characters).
     """
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "あなたは日本料理の専門家です。"},
+                {"role": "system", "content": "You are a culinary expert for international and Japanese cuisine."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7
@@ -101,10 +85,9 @@ def get_dish_info_from_gpt(dish_name):
     except Exception as e:
         return f"GPT Error: {str(e)}"
 
-# --- UIセットアップ ---
+# --- UI 設定 ---
 st.set_page_config(layout="wide", page_title="Menu Translator")
-st.markdown(
-    """
+st.markdown("""
     <style>
     body {
         background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
@@ -124,39 +107,40 @@ st.markdown(
         border-radius: 8px;
     }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
 # --- アプリUI ---
 st.title("🍷 Elegant Menu Translator")
-st.write("画像をアップロードして、料理を英語に翻訳 + 詳細情報も表示します。")
+st.caption("Translate with Style — Smart. Bilingual. Beautiful.")
+st.write("Upload a menu image to translate and get culinary insights.")
 
-uploaded_file = st.file_uploader("📸 メニュー画像をアップロード", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📸 Upload your menu image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="アップロードされた画像", use_column_width=True)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
     text = ocr_with_google_vision(image)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 翻訳 & 情報")
+        st.subheader("🌍 Translation & Culinary Insight")
         for line in lines:
-            if not is_food_item(line):
-                continue  # 料理名でないと判断された場合はスキップ
-
             translated = translate_text_deepl(line)
+
             with st.container():
                 col1, col2 = st.columns([1, 2])
                 with col1:
-                    st.markdown(f"<div style='font-size:18px; font-weight:bold; color:#ffd700;'>{line}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='color:#66ccff; font-size:16px;'>➡️ {translated}</div>", unsafe_allow_html=True)
+                    info = get_dish_info_from_gpt(translated)
+                    hover_html = f"""
+                    <span style='font-size:18px; font-weight:bold; color:#ffd700;' title="{info}">
+                        {line}
+                    </span><br>
+                    <span style='color:#66ccff; font-size:16px;'>➡️ {translated}</span>
+                    """
+                    st.markdown(hover_html, unsafe_allow_html=True)
                 with col2:
-                    with st.expander("🍽️ 料理の詳細"):
-                        info = get_dish_info_from_gpt(translated)
-                        st.markdown(f"<pre style='background-color:#222; color:#eee; border-radius:8px; padding:10px;'>{info}</pre>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#111;padding:8px;border-radius:8px;color:#ddd;font-size:14px;'><pre>{info}</pre></div>", unsafe_allow_html=True)
     else:
-        st.warning("文字が検出されませんでした。画像を再確認してください。")
+        st.warning("No text detected. Please check the image.")
            
