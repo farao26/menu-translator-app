@@ -7,13 +7,13 @@ import json
 import re
 from datetime import datetime
 
-# --- SecretsからAPIキー取得 ---
+# --- APIキーの読み込み ---
 GOOGLE_CLOUD_VISION_API_KEY = st.secrets["GOOGLE_CLOUD_VISION_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 GOOGLE_CUSTOM_SEARCH_API_KEY = st.secrets["GOOGLE_CUSTOM_SEARCH_API_KEY"]
 GOOGLE_CSE_ID = st.secrets["GOOGLE_CSE_ID"]
 
-# --- OCR（Google Cloud Vision） ---
+# --- OCR処理（Google Cloud Vision） ---
 def ocr_with_google_vision(image):
     def remove_prices(text):
         lines = text.split('\n')
@@ -44,11 +44,10 @@ def ocr_with_google_vision(image):
     if response.status_code == 200:
         annotations = response.json()["responses"][0].get("textAnnotations")
         if annotations:
-            raw_text = annotations[0]["description"]
-            return remove_prices(raw_text)
+            return remove_prices(annotations[0]["description"])
     return ""
 
-# --- DeepL 翻訳 ---
+# --- 翻訳処理（DeepL） ---
 def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     url = "https://api-free.deepl.com/v2/translate"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -61,10 +60,9 @@ def translate_text_deepl(text, source_lang='JA', target_lang='EN'):
     response = requests.post(url, headers=headers, data=data)
     if response.status_code == 200:
         return response.json()["translations"][0]["text"]
-    else:
-        return text
+    return text
 
-# --- Google 画像検索 ---
+# --- 画像検索（Google Custom Search） ---
 def get_google_image(query, api_key, cse_id):
     search_url = "https://www.googleapis.com/customsearch/v1"
     params = {
@@ -82,92 +80,80 @@ def get_google_image(query, api_key, cse_id):
             results = response.json()
             if "items" in results:
                 return results["items"][0]["link"]
-    except Exception as e:
-        print("Image search error:", e)
+    except:
+        return None
     return None
 
-# --- UIデザイン ---
+# --- UIセットアップ ---
 st.set_page_config(layout="wide", page_title="Elegant Menu Translator")
-st.markdown("""
+st.markdown(
+    f"""
     <style>
-    body {
-        background-color: #d2b74e !important;
+    body {{
+        background-color: #d2b74e;
         color: #333333;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    .stApp {
+    }}
+    .stApp {{
+        background-color: #d2b74e;
+    }}
+    header {{
         background-color: #d2b74e !important;
-    }
-    .css-18e3th9 {
-        background-color: #d2b74e !important;
-    }
-    .card {
+    }}
+    .card {{
         transition: transform .2s;
-        background-color: #00334e;
-        color: #fff;
+        background-color: #fff8dc;
+        color: #333;
         border-radius: 10px;
         padding: 1rem;
         margin-bottom: 1rem;
-    }
-    .card:hover {
+    }}
+    .card:hover {{
         transform: scale(1.05);
-        background-color: #004b6b;
-    }
-    a {
-        color: #000;
-    }
+        background-color: #f2e6b8;
+    }}
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
-# --- タイトル・説明 ---
+# --- アプリタイトルとUI ---
 st.title("🍽️ Elegant Menu Translator")
-st.caption("Upload a menu image, translate it to English, and see dish photos!")
+st.caption("Upload a menu image to translate Japanese dishes into English with matching photos.")
 
 uploaded_file = st.file_uploader("📸 Upload menu image", type=["jpg", "jpeg", "png"])
 
-# --- 履歴保存
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# --- メイン処理
-if uploaded_file is not None:
+if uploaded_file:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_column_width=True)
-    st.markdown("---")
 
     text = ocr_with_google_vision(image)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     if lines:
-        st.subheader("🌍 Translation Results + Images")
+        st.subheader("🌍 Translated Menu Items")
         for line in lines:
             translated = translate_text_deepl(line)
             st.session_state.history.append((line, translated))
 
-            query = f"{line} {translated} Japanese food"
-            image_url = get_google_image(query, GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
+            image_url = get_google_image(f"{line} 料理", GOOGLE_CUSTOM_SEARCH_API_KEY, GOOGLE_CSE_ID)
+            if not image_url:
+                image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
 
-            if image_url:
-                st.markdown(f"""
-                    <div class="card">
-                        <b>{line}</b><br>
-                        <span style='color:#ccffcc;'>➡️ {translated}</span><br>
-                        <img src="{image_url}" width="300"><br>
-                        <a href="{image_url}" target="_blank">🔍 View dish image</a>
-                    </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                    <div class="card">
-                        <b>{line}</b><br>
-                        <span style='color:#ccffcc;'>➡️ {translated}</span><br>
-                        <i>🔍 No image found</i>
-                    </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="card">
+                <b>{line}</b><br>
+                <span style='color:#4b6eaf;'>➡️ {translated}</span><br>
+                <img src="{image_url}" width="300"><br>
+                <a href="{image_url}" target="_blank">🔍 View Image</a>
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        st.warning("No text detected. Please upload a clearer image.")
+        st.warning("No text detected in image.")
 
-# --- 翻訳履歴の保存 ---
+# --- 翻訳履歴保存 ---
 if st.session_state.history:
     if st.button("💾 Save Translation History"):
         filename = f"translation_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -176,4 +162,4 @@ if st.session_state.history:
                 f.write(f"{original} => {translated}\n")
         with open(filename, "rb") as f:
             st.download_button("⬇️ Download", f, file_name=filename)
-                 
+                
